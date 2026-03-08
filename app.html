@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>企業研究エンジン</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&family=Shippori+Mincho:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+<style>
+:root {
+  --gold: #B8960C;
+  --gold-light: #D4AF37;
+  --gold-pale: #F5EDCF;
+  --black: #0a0a0a;
+  --dark: #151515;
+  --dark2: #1e1e1e;
+  --dark3: #2a2a2a;
+  --bg: #0a0a0a;
+  --text: #e8e4dc;
+  --text-dim: #888;
+  --text-dimmer: #555;
+  --border: rgba(255,255,255,0.06);
+  --border-gold: rgba(184,150,12,0.25);
+  --red: #E53935;
+  --green: #43A047;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.8;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--dark); }
+::-webkit-scrollbar-thumb { background: var(--dark3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gold); }
+
+/* Noise texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.fade-up { animation: fadeUp 0.5s ease both; }
+.fade-up-1 { animation-delay: 0.1s; }
+.fade-up-2 { animation-delay: 0.2s; }
+.fade-up-3 { animation-delay: 0.3s; }
+.fade-up-4 { animation-delay: 0.4s; }
+
+/* ── Layout ── */
+.app { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+
+/* ── Header ── */
+.app-header {
+  padding: 48px 0 32px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 40px;
+  position: relative;
+}
+.app-header::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 0;
+  width: 80px; height: 1px;
+  background: var(--gold);
+}
+.logo-badge {
+  font-size: 10px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 12px;
+}
+.logo {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text);
+}
+.logo span { color: var(--gold-light); }
+
+/* ── Navigation Tabs ── */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 32px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tab {
+  padding: 14px 20px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  letter-spacing: 0.5px;
+  background: none;
+  border-top: none; border-left: none; border-right: none;
+  font-family: inherit;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  color: var(--gold-light);
+  border-bottom-color: var(--gold);
+}
+
+/* ── Settings Page ── */
+.settings-card {
+  background: var(--dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 28px;
+  margin-bottom: 20px;
+}
+.settings-card h3 {
+  font-size: 14px;
+  color: var(--gold-light);
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+  font-weight: 500;
+}
+
+/* ── Forms ── */
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+input[type="text"], input[type="password"], select, textarea {
+  width: 100%;
+  background: var(--dark2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  margin-bottom: 16px;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--gold);
+}
+textarea { resize: vertical; min-height: 80px; }
+select { cursor: pointer; }
+select option { background: var(--dark2); }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.5px;
+}
+.btn-gold {
+  background: var(--gold);
+  color: var(--black);
+}
+.btn-gold:hover { background: var(--gold-light); transform: translateY(-1px); }
+.btn-gold:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn-outline {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.btn-outline:hover { border-color: var(--gold); color: var(--gold-light); }
+.btn-sm { padding: 8px 16px; font-size: 12px; }
+.btn-danger { background: var(--red); color: white; }
+
+/* ── Research Input Page ── */
+.input-section {
+  background: var(--dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 32px;
+  margin-bottom: 24px;
+  position: relative;
+}
+.input-section::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 3px; height: 100%;
+  background: var(--gold);
+  border-radius: 8px 0 0 8px;
+}
+.input-section h3 {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  background: var(--gold);
+  color: var(--black);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  margin-right: 10px;
+}
+
+/* File upload */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 16px;
+  position: relative;
+}
+.upload-zone:hover { border-color: var(--gold); background: rgba(184,150,12,0.03); }
+.upload-zone.has-files { border-color: var(--gold); border-style: solid; }
+.upload-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.upload-icon { font-size: 32px; margin-bottom: 8px; }
+.upload-text { font-size: 13px; color: var(--text-dim); }
+.upload-text strong { color: var(--gold-light); }
+.file-list { margin-top: 12px; }
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--dark2);
+  border-radius: 4px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.file-item .name { color: var(--text); }
+.file-item .size { color: var(--text-dimmer); font-size: 11px; }
+.file-remove {
+  background: none;
+  border: none;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+/* ── Loading / Progress ── */
+.loading-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--dark3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 24px 0;
+}
+.loading-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold), var(--gold-light), var(--gold));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.loading-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.loading-dot {
+  width: 8px; height: 8px;
+  background: var(--gold);
+  border-radius: 50%;
+  animation: pulse 1.2s infinite;
+}
+
+/* ── Report Output ── */
+.report {
+  animation: fadeUp 0.5s ease both;
+}
+.report-header {
+  background: var(--dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 32px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.report-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold), transparent);
+}
+.report-company {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.report-company span { color: var(--gold-light); }
+.report-position {
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+.report-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+/* Report content sections */
+.report-section {
+  background: var(--dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.report-section-header {
+  padding: 16px 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0.2s;
+  user-select: none;
+}
+.report-section-header:hover { background: rgba(255,255,255,0.02); }
+.report-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.report-section-title .num {
+  color: var(--gold);
+  font-family: 'Shippori Mincho', serif;
+  font-size: 13px;
+}
+.report-section-arrow {
+  color: var(--text-dimmer);
+  transition: transform 0.2s;
+  font-size: 12px;
+}
+.report-section-arrow.open { transform: rotate(180deg); }
+.report-section-body {
+  padding: 0 24px 24px;
+  border-top: 1px solid var(--border);
+}
+
+/* Markdown rendered content */
+.md-content { line-height: 1.9; }
+.md-content h1, .md-content h2, .md-content h3 {
+  font-family: 'Shippori Mincho', serif;
+  color: var(--text);
+  margin: 20px 0 10px;
+}
+.md-content h1 { font-size: 20px; }
+.md-content h2 { font-size: 17px; color: var(--gold-light); }
+.md-content h3 { font-size: 15px; }
+.md-content p { margin-bottom: 10px; }
+.md-content ul, .md-content ol { padding-left: 20px; margin-bottom: 12px; }
+.md-content li { margin-bottom: 4px; }
+.md-content strong { color: var(--gold-light); font-weight: 600; }
+.md-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.md-content thead th {
+  background: var(--dark2);
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--gold-light);
+  border-bottom: 1px solid var(--border);
+}
+.md-content tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.md-content blockquote {
+  border-left: 3px solid var(--gold);
+  padding: 12px 16px;
+  background: rgba(184,150,12,0.05);
+  border-radius: 0 6px 6px 0;
+  margin: 12px 0;
+  color: var(--text-dim);
+}
+.md-content code {
+  background: var(--dark2);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+/* ── History ── */
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.history-item:hover {
+  border-color: var(--border-gold);
+  transform: translateX(4px);
+}
+.history-company {
+  font-weight: 600;
+  font-size: 15px;
+}
+.history-meta {
+  font-size: 12px;
+  color: var(--text-dimmer);
+  margin-top: 2px;
+}
+.history-arrow { color: var(--text-dimmer); }
+
+/* ── Empty State ── */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--text-dimmer);
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+.empty-state h3 {
+  font-family: 'Shippori Mincho', serif;
+  font-size: 18px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.empty-state p { font-size: 13px; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--dark2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  padding: 14px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  z-index: 1000;
+  animation: slideIn 0.3s ease;
+  max-width: 340px;
+}
+
+/* ── Footer ── */
+.app-footer {
+  border-top: 1px solid var(--border);
+  padding: 32px 0;
+  margin-top: 60px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dimmer);
+  letter-spacing: 1px;
+}
+
+@media (max-width: 640px) {
+  .app { padding: 0 14px; }
+  .app-header { padding: 32px 0 24px; }
+  .logo { font-size: 22px; }
+  .input-section { padding: 24px 20px; }
+  .report-header { padding: 24px 20px; }
+  .tab { padding: 12px 14px; font-size: 12px; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ═══════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════
+const POSITIONS = [
+  { value: 'overseas_sales', label: '海外営業（事務系）' },
+  { value: 'domestic_sales', label: '国内営業（事務系）' },
+  { value: 'tech_rd', label: '技術系（研究開発）' },
+  { value: 'tech_production', label: '技術系（生産技術）' },
+  { value: 'tech_se', label: '技術系（SE・IT）' },
+  { value: 'corporate', label: '管理系（人事・経理・法務）' },
+];
+
+const RESEARCH_SECTIONS = [
+  { id: 'overview', title: '企業概要', icon: '01' },
+  { id: 'social', title: '社会貢献（大きな軸）', icon: '02' },
+  { id: 'segments', title: '事業領域・製品ライン', icon: '03' },
+  { id: 'financials', title: '最新財務データ', icon: '04' },
+  { id: 'midplan', title: '中期経営計画', icon: '05' },
+  { id: 'position_fit', title: '志望理由テンプレ', icon: '06' },
+  { id: 'reverse_questions', title: '逆質問案', icon: '07' },
+  { id: 'tech_knowledge', title: '技術知識（面接用）', icon: '08' },
+  { id: 'key_numbers', title: '数字まとめ', icon: '09' },
+];
+
+const STORAGE_KEY = 'kigyo_kenkyuu_v1';
+
+// ═══════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════
+function loadState() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
+}
+
+function saveState(state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function renderMarkdown(md) {
+  if (!md) return '';
+  return marked.parse(md, { breaks: true });
+}
+
+// ═══════════════════════════════════════════
+// CLAUDE API
+// ═══════════════════════════════════════════
+async function callClaude({ apiKey, baseUrl, model, messages, system, tools, onStream }) {
+  const apiBase = (baseUrl || 'https://api.anthropic.com').replace(/\/+$/, '');
+  const modelId = model || 'claude-sonnet-4-20250514';
+  
+  const body = {
+    model: modelId,
+    max_tokens: 8000,
+    system,
+    messages,
+  };
+  if (tools) body.tools = tools;
+
+  const response = await fetch(`${apiBase}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'Authorization': `Bearer ${apiKey}`,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API Error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  
+  // Handle web search tool use - may need multiple rounds
+  if (data.stop_reason === 'tool_use') {
+    // Collect all text and tool results
+    const assistantContent = data.content;
+    const toolResults = [];
+    
+    for (const block of assistantContent) {
+      if (block.type === 'tool_use') {
+        // For web_search, the API handles it server-side in newer versions
+        // We just need to continue the conversation
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: 'Search completed.',
+        });
+      }
+    }
+    
+    // Continue the conversation with tool results
+    const nextMessages = [
+      ...messages,
+      { role: 'assistant', content: assistantContent },
+      { role: 'user', content: toolResults },
+    ];
+    
+    return callClaude({ apiKey, baseUrl, model, messages: nextMessages, system, tools, onStream });
+  }
+
+  // Extract text from response
+  const text = data.content
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('\n');
+
+  return text;
+}
+
+// Build research prompt
+function buildResearchPrompt(company, position, additionalContext) {
+  const posLabel = POSITIONS.find(p => p.value === position)?.label || position;
+  
+  return `あなたは日本の就職活動に精通した企業研究アドバイザーです。以下の企業について、${posLabel}を志望する学生向けの企業研究レポートを作成してください。
+
+# 企業名: ${company}
+# 志望職種: ${posLabel}
+
+${additionalContext ? `# ユーザーが提供した追加資料（財報・中期経営計画等）:\n${additionalContext}\n` : ''}
+
+以下の9つのセクションについて、それぞれ **## セクション名** の形式で出力してください。
+各セクションの間には --- を入れてください。
+
+## 企業概要
+企業理念、ビジョン、コア技術、本社所在地、CEO名、設立年、従業員数、上場市場など基本情報。
+
+## 社会貢献（大きな軸）
+志望理由の「大きな軸」に使える社会貢献ポイントを3-4つ。環境・サステナビリティの取り組みも含める。面接での言い回し例も1つ付ける。
+
+## 事業領域・製品ライン
+全事業セグメントを網羅。各事業の主要製品、市場ポジション、最新の業績動向。ESで「どの事業に興味があるか」を聞かれた場合の対策も含める。技術的な製品原理も簡潔に説明。
+
+## 最新財務データ
+最新の決算データ（売上、営業利益、利益率）、事業別業績、地域別売上構成、株主還元方針。表形式で整理。
+
+## 中期経営計画
+現行の中期経営計画の概要、数値目標と達成状況、今後の成長戦略、投資方針。
+
+## 志望理由テンプレ
+「大きな軸（社会貢献）」1つ + 「企業選びポイント」2つ の計3パートの志望理由テンプレ。${posLabel}に特化した内容にする。
+
+## 逆質問案
+中期経営計画・財務データに基づく鋭い逆質問5問 + 個人キャリアに関する逆質問4問。${posLabel}の視点から。
+
+## 技術知識（面接用）
+面接で「〇〇とは何ですか？」と聞かれそうな技術用語や製品について、中学生にもわかるレベルで説明。5つ以上。
+
+## 数字まとめ
+面接で使える重要な数字を表形式で10個以上。数字 + 面接での使い方。
+
+---
+重要なルール:
+- 日本語で出力
+- Markdownフォーマット
+- 具体的な数字を可能な限り含める
+- 推測の場合は明記する
+- ${posLabel}の視点を常に意識
+- 各セクションは十分な分量で（合計8000文字以上を目指す）`;
+}
+
+function buildDeepDivePrompt(company, position, existingReport, pdfContent) {
+  const posLabel = POSITIONS.find(p => p.value === position)?.label || position;
+  
+  return `あなたは企業研究アドバイザーです。以下の企業について、ユーザーが追加でアップロードした資料（財報・中期経営計画等）を読み込み、既存のレポートを大幅に強化・更新してください。
+
+# 企業名: ${company}
+# 志望職種: ${posLabel}
+
+# 既存レポートの概要:
+（既にこの企業の基本レポートは作成済みです。今回はアップロードされた資料を元に、より具体的な数字・逆質問・分析を追加してください。）
+
+# アップロードされた資料の内容:
+${pdfContent}
+
+以下の形式で、**更新・追加すべき情報**を各セクションごとに出力してください:
+
+## 最新財務データ（更新）
+資料に基づく最新の数字に更新。事業別・地域別の詳細データ。前年比や計画比の分析。
+
+## 中期経営計画（更新）
+資料に基づく最新の進捗状況。目標vs実績の詳細比較。
+
+## 逆質問案（追加）
+資料の具体的なデータに基づく、より鋭い逆質問を5問追加。
+
+## 技術知識（追加）
+資料に出てくる専門用語・製品名の解説を追加。
+
+## 数字まとめ（更新）
+資料から読み取れる重要な数字を追加・更新。
+
+Markdownフォーマットで出力してください。`;
+}
+
+// ═══════════════════════════════════════════
+// COMPONENTS
+// ═══════════════════════════════════════════
+
+// Toast notification
+function Toast({ message, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, []);
+  return <div className="toast">{message}</div>;
+}
+
+// Section collapsible
+function ReportSection({ id, title, icon, content, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!content) return null;
+  
+  return (
+    <div className="report-section">
+      <div className="report-section-header" onClick={() => setOpen(!open)}>
+        <div className="report-section-title">
+          <span className="num">{icon}</span>
+          {title}
+        </div>
+        <span className={`report-section-arrow ${open ? 'open' : ''}`}>▼</span>
+      </div>
+      {open && (
+        <div className="report-section-body">
+          <div 
+            className="md-content" 
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+// PAGES
+// ═══════════════════════════════════════════
+
+// Settings Page
+function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel, toast }) {
+  const [key, setKey] = useState(apiKey || '');
+  const [url, setUrl] = useState(baseUrl || '');
+  const [mdl, setMdl] = useState(model || 'claude-sonnet-4-20250514');
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  
+  const handleSave = () => {
+    setApiKey(key);
+    setBaseUrl(url);
+    setModel(mdl);
+    setSaved(true);
+    toast('設定を保存しました');
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleTest = async () => {
+    if (!key) { toast('API Keyを入力してください'); return; }
+    setTesting(true);
+    try {
+      const apiBase = (url || 'https://api.anthropic.com').replace(/\/+$/, '');
+      const res = await fetch(`${apiBase}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'Authorization': `Bearer ${key}`,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: mdl,
+          max_tokens: 50,
+          messages: [{ role: 'user', content: 'こんにちは。「OK」とだけ返してください。' }],
+        }),
+      });
+      if (res.ok) {
+        toast('✅ 接続成功！APIが正常に動作しています');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast(`❌ 接続失敗: ${err.error?.message || res.status}`);
+      }
+    } catch (e) {
+      toast(`❌ 接続失敗: ${e.message}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="fade-up">
+      <div className="settings-card">
+        <h3>🔗 API 接続設定</h3>
+        
+        <label>API BASE URL（中転APIの場合はここを変更）</label>
+        <input 
+          type="text" 
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="https://api.anthropic.com（デフォルト・空欄でもOK）"
+        />
+        <p style={{ fontSize: '12px', color: 'var(--text-dimmer)', marginBottom: '16px' }}>
+          中転API（例: https://your-proxy.com）を使う場合はここにベースURLを入力。
+          Anthropic公式APIの場合は空欄のままでOKです。
+        </p>
+
+        <label>API KEY</label>
+        <input 
+          type="password" 
+          value={key}
+          onChange={e => setKey(e.target.value)}
+          placeholder="sk-ant-api03-... または中転APIのキー"
+        />
+
+        <label>モデル</label>
+        <select value={mdl} onChange={e => setMdl(e.target.value)}>
+          <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (推奨)</option>
+          <option value="claude-opus-4-20250514">Claude Opus 4</option>
+          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (高速・低コスト)</option>
+          <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+        </select>
+        <p style={{ fontSize: '12px', color: 'var(--text-dimmer)', marginBottom: '16px' }}>
+          中転APIの場合、対応しているモデル名を確認してください。
+        </p>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-gold" onClick={handleSave}>
+            {saved ? '✓ 保存済み' : '💾 保存する'}
+          </button>
+          <button className="btn btn-outline" onClick={handleTest} disabled={testing}>
+            {testing ? 'テスト中...' : '🧪 接続テスト'}
+          </button>
+        </div>
+      </div>
+      
+      <div className="settings-card">
+        <h3>📋 使い方</h3>
+        <p style={{ fontSize: '13px', color: 'var(--text-dim)', lineHeight: '2' }}>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 1:</strong> 上でAPI接続を設定（中転APIまたはAnthropic公式）<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 2:</strong> 「接続テスト」で動作確認<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 3:</strong> 「新規調査」タブで企業名と志望職種を入力<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 4:</strong> 「企業調査を開始」で自動生成<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 5:</strong> 財報や中計のPDFをアップロードすると深掘り分析を追加<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 6:</strong> 生成されたレポートはHTMLでエクスポート可能
+        </p>
+      </div>
+
+      <div className="settings-card">
+        <h3>💡 中転API（代理API）について</h3>
+        <p style={{ fontSize: '13px', color: 'var(--text-dim)', lineHeight: '2' }}>
+          中転APIは、Anthropic公式APIと同じプロトコルで動作する第三方代理サービスです。<br/>
+          設定方法：<br/>
+          ① Base URLに中転APIのアドレスを入力（例: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">https://your-proxy.com</code>）<br/>
+          ② API Keyに中転APIのキーを入力<br/>
+          ③ モデルは中転APIが対応しているものを選択<br/>
+          ④ 「接続テスト」で確認
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// New Research Page
+function NewResearchPage({ apiKey, baseUrl, model, onComplete, toast }) {
+  const [company, setCompany] = useState('');
+  const [position, setPosition] = useState('overseas_sales');
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState('');
+  const fileRef = useRef();
+
+  const handleFileChange = (e) => {
+    const newFiles = Array.from(e.target.files);
+    setFiles(prev => [...prev, ...newFiles]);
+  };
+
+  const removeFile = (idx) => {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleStart = async () => {
+    if (!company.trim()) { toast('企業名を入力してください'); return; }
+    if (!apiKey) { toast('設定タブでAPI Keyを設定してください'); return; }
+    
+    setLoading(true);
+    setProgress(10);
+    setStatus('企業の基礎情報を調査中...');
+    
+    try {
+      // Step 1: Build PDF content if any
+      let pdfContent = '';
+      if (files.length > 0) {
+        setStatus('アップロードされた資料を読み込み中...');
+        setProgress(20);
+        
+        const pdfMessages = [];
+        for (const file of files) {
+          const base64 = await fileToBase64(file);
+          const mediaType = file.type === 'application/pdf' ? 'application/pdf' : 
+                           file.type.startsWith('image/') ? file.type : 'application/pdf';
+          pdfMessages.push({
+            type: 'document',
+            source: { type: 'base64', media_type: mediaType, data: base64 },
+          });
+        }
+        pdfMessages.push({
+          type: 'text',
+          text: `上記の資料を読み込み、以下の企業に関する重要な情報を要約してください。特に以下の点を抽出してください：
+- 最新の売上・利益の数字（事業セグメント別）
+- 地域別売上構成
+- 中期経営計画の目標と進捗
+- 成長戦略・重点投資分野
+- 株主還元方針
+- 注目すべきリスクや課題
+
+企業名: ${company}`
+        });
+        
+        setProgress(35);
+        setStatus('資料を分析中...');
+        
+        pdfContent = await callClaude({
+          apiKey, baseUrl, model,
+          system: 'あなたは企業分析の専門家です。アップロードされた資料から重要な情報を正確に抽出してください。日本語で回答してください。',
+          messages: [{ role: 'user', content: pdfMessages }],
+        });
+        
+        setProgress(50);
+      }
+      
+      // Step 2: Generate research report
+      setStatus('企業研究レポートを生成中...');
+      setProgress(files.length > 0 ? 60 : 30);
+      
+      const report = await callClaude({
+        apiKey, baseUrl, model,
+        system: buildResearchPrompt(company, position, pdfContent),
+        messages: [{ 
+          role: 'user', 
+          content: `${company}の企業研究レポートを作成してください。志望職種は${POSITIONS.find(p => p.value === position)?.label}です。Web検索も活用して最新情報を含めてください。`
+        }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      });
+      
+      setProgress(90);
+      setStatus('レポートを整理中...');
+      
+      // Parse sections from the report
+      const sections = {};
+      const sectionPattern = /## (.+?)(?=\n## |\n---|\n$|$)/gs;
+      let match;
+      const reportText = report;
+      
+      // Simple section parser
+      const sectionKeys = RESEARCH_SECTIONS.map(s => s.title);
+      let currentSection = null;
+      let currentContent = [];
+      
+      for (const line of reportText.split('\n')) {
+        const sectionMatch = line.match(/^## (.+)/);
+        if (sectionMatch) {
+          if (currentSection) {
+            const key = RESEARCH_SECTIONS.find(s => 
+              currentSection.includes(s.title.split('（')[0])
+            )?.id;
+            if (key) sections[key] = currentContent.join('\n').trim();
+          }
+          currentSection = sectionMatch[1];
+          currentContent = [];
+        } else if (line.trim() === '---') {
+          if (currentSection) {
+            const key = RESEARCH_SECTIONS.find(s => 
+              currentSection.includes(s.title.split('（')[0])
+            )?.id;
+            if (key) sections[key] = currentContent.join('\n').trim();
+          }
+          currentSection = null;
+          currentContent = [];
+        } else {
+          currentContent.push(line);
+        }
+      }
+      // Last section
+      if (currentSection) {
+        const key = RESEARCH_SECTIONS.find(s => 
+          currentSection.includes(s.title.split('（')[0])
+        )?.id;
+        if (key) sections[key] = currentContent.join('\n').trim();
+      }
+      
+      // If parsing didn't work well, put everything in overview
+      if (Object.keys(sections).length === 0) {
+        sections.overview = reportText;
+      }
+      
+      setProgress(100);
+      
+      const result = {
+        id: Date.now().toString(),
+        company: company.trim(),
+        position,
+        sections,
+        rawReport: reportText,
+        createdAt: new Date().toISOString(),
+        hasUploadedFiles: files.length > 0,
+      };
+      
+      onComplete(result);
+      toast('レポートの生成が完了しました！');
+      
+    } catch (err) {
+      console.error(err);
+      toast(`エラー: ${err.message}`);
+    } finally {
+      setLoading(false);
+      setProgress(0);
+      setStatus('');
+    }
+  };
+
+  return (
+    <div className="fade-up">
+      {/* Step 1: Company & Position */}
+      <div className="input-section">
+        <h3><span className="step-num">1</span>企業と志望職種</h3>
+        <label>企業名</label>
+        <input 
+          type="text" 
+          value={company}
+          onChange={e => setCompany(e.target.value)}
+          placeholder="例：ニコン、トヨタ自動車、三菱商事..."
+          disabled={loading}
+        />
+        <label>志望職種</label>
+        <select value={position} onChange={e => setPosition(e.target.value)} disabled={loading}>
+          {POSITIONS.map(p => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Step 2: PDF Upload (Optional) */}
+      <div className="input-section">
+        <h3><span className="step-num">2</span>資料アップロード（任意）</h3>
+        <p style={{ fontSize: '13px', color: 'var(--text-dim)', marginBottom: '16px' }}>
+          財報、中期経営計画、決算説明資料などのPDFをアップロードすると、より詳細なレポートが生成されます。なくても基礎調査は可能です。
+        </p>
+        <div className={`upload-zone ${files.length > 0 ? 'has-files' : ''}`}>
+          <input 
+            type="file" 
+            ref={fileRef}
+            onChange={handleFileChange}
+            accept=".pdf,.png,.jpg,.jpeg"
+            multiple
+            disabled={loading}
+          />
+          <div className="upload-icon">📄</div>
+          <div className="upload-text">
+            <strong>クリックしてアップロード</strong><br/>
+            PDF、画像ファイル対応（各5MBまで）
+          </div>
+        </div>
+        {files.length > 0 && (
+          <div className="file-list">
+            {files.map((f, i) => (
+              <div className="file-item" key={i}>
+                <span className="name">📎 {f.name}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span className="size">{formatFileSize(f.size)}</span>
+                  <button className="file-remove" onClick={() => removeFile(i)}>✕</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Progress */}
+      {loading && (
+        <div className="fade-up" style={{ marginBottom: '24px' }}>
+          <div className="loading-bar">
+            <div className="loading-bar-fill" style={{ width: `${progress}%` }}></div>
+          </div>
+          <div className="loading-status">
+            <div className="loading-dot"></div>
+            <span>{status}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Action */}
+      <button 
+        className="btn btn-gold" 
+        onClick={handleStart}
+        disabled={loading || !company.trim()}
+        style={{ width: '100%', justifyContent: 'center', padding: '16px' }}
+      >
+        {loading ? '生成中...' : '🔍 企業調査を開始'}
+      </button>
+    </div>
+  );
+}
+
+// Report View Page
+function ReportPage({ report, apiKey, baseUrl, model, toast, onUpdate }) {
+  const [uploading, setUploading] = useState(false);
+  const [deepFiles, setDeepFiles] = useState([]);
+  const [deepLoading, setDeepLoading] = useState(false);
+  const [deepProgress, setDeepProgress] = useState(0);
+  const [deepStatus, setDeepStatus] = useState('');
+  
+  if (!report) return (
+    <div className="empty-state">
+      <div className="icon">📋</div>
+      <h3>レポートが選択されていません</h3>
+      <p>履歴から選択するか、新規調査を開始してください</p>
+    </div>
+  );
+
+  const handleDeepDive = async () => {
+    if (deepFiles.length === 0) { toast('PDFをアップロードしてください'); return; }
+    
+    setDeepLoading(true);
+    setDeepProgress(20);
+    setDeepStatus('資料を読み込み中...');
+    
+    try {
+      // Read PDFs
+      const pdfMessages = [];
+      for (const file of deepFiles) {
+        const base64 = await fileToBase64(file);
+        pdfMessages.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+        });
+      }
+      pdfMessages.push({
+        type: 'text',
+        text: `上記の資料を分析し、${report.company}の企業研究に役立つ情報をすべて抽出してください。`,
+      });
+      
+      setDeepProgress(40);
+      setDeepStatus('資料を分析中...');
+      
+      const pdfContent = await callClaude({
+        apiKey, baseUrl, model,
+        system: '企業分析の専門家として、資料から重要情報を正確に抽出してください。',
+        messages: [{ role: 'user', content: pdfMessages }],
+      });
+      
+      setDeepProgress(60);
+      setDeepStatus('深掘り分析を生成中...');
+      
+      const deepReport = await callClaude({
+        apiKey, baseUrl, model,
+        system: buildDeepDivePrompt(report.company, report.position, report.rawReport, pdfContent),
+        messages: [{ role: 'user', content: '追加資料に基づいて、レポートを更新・強化してください。' }],
+      });
+      
+      setDeepProgress(90);
+      setDeepStatus('レポートを更新中...');
+      
+      // Merge deep dive content into existing sections
+      const updatedSections = { ...report.sections };
+      // Append deep dive as additional content
+      if (!updatedSections.financials) updatedSections.financials = '';
+      updatedSections.financials += '\n\n---\n### 📄 アップロード資料に基づく追加分析\n' + deepReport;
+      
+      const updated = {
+        ...report,
+        sections: updatedSections,
+        rawReport: report.rawReport + '\n\n---\n# 深掘り分析（追加資料ベース）\n' + deepReport,
+        hasUploadedFiles: true,
+        updatedAt: new Date().toISOString(),
+      };
+      
+      onUpdate(updated);
+      setDeepFiles([]);
+      toast('深掘り分析を追加しました！');
+      
+    } catch (err) {
+      toast(`エラー: ${err.message}`);
+    } finally {
+      setDeepLoading(false);
+      setDeepProgress(0);
+    }
+  };
+
+  const exportHTML = () => {
+    const content = report.rawReport || Object.values(report.sections).join('\n\n---\n\n');
+    const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${report.company} 企業研究</title><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Shippori+Mincho:wght@400;700&display=swap" rel="stylesheet"><style>body{font-family:'Noto Sans JP',sans-serif;max-width:800px;margin:0 auto;padding:40px 20px;background:#fafaf8;color:#1a1a1a;line-height:1.9}h1,h2,h3{font-family:'Shippori Mincho',serif}h1{border-bottom:2px solid #111;padding-bottom:12px;margin:32px 0 16px}h2{color:#B8960C;margin:24px 0 12px}h3{margin:16px 0 8px}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}th{background:#111;color:white;padding:10px 12px;text-align:left}td{padding:8px 12px;border-bottom:1px solid #e0ddd8}blockquote{border-left:3px solid #B8960C;padding:12px 16px;background:#F5EDCF;margin:12px 0}strong{color:#B8960C}</style></head><body>${marked.parse(content)}</body></html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${report.company}_企業研究.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('HTMLファイルをダウンロードしました');
+  };
+
+  const posLabel = POSITIONS.find(p => p.value === report.position)?.label || report.position;
+
+  return (
+    <div className="report fade-up">
+      {/* Header */}
+      <div className="report-header">
+        <div className="report-company">{report.company}</div>
+        <div className="report-position">{posLabel} — {new Date(report.createdAt).toLocaleDateString('ja-JP')}</div>
+        <div className="report-actions">
+          <button className="btn btn-gold btn-sm" onClick={exportHTML}>📥 HTMLエクスポート</button>
+          <button className="btn btn-outline btn-sm" onClick={() => setUploading(!uploading)}>
+            📄 追加資料で深掘り
+          </button>
+        </div>
+      </div>
+
+      {/* Deep dive upload */}
+      {uploading && (
+        <div className="input-section fade-up" style={{ marginBottom: '16px' }}>
+          <h3 style={{ fontSize: '15px' }}>追加資料で深掘り分析</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-dim)', margin: '12px 0' }}>
+            財報PDF、中期経営計画PDF、決算説明資料などをアップロードすると、より詳細な数字・逆質問が追加されます。
+          </p>
+          <div className="upload-zone" style={{ position: 'relative' }}>
+            <input 
+              type="file" 
+              onChange={e => setDeepFiles(prev => [...prev, ...Array.from(e.target.files)])}
+              accept=".pdf,.png,.jpg"
+              multiple
+              disabled={deepLoading}
+              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+            />
+            <div className="upload-icon">📄</div>
+            <div className="upload-text"><strong>PDFをアップロード</strong></div>
+          </div>
+          {deepFiles.map((f, i) => (
+            <div className="file-item" key={i}>
+              <span className="name">📎 {f.name}</span>
+              <button className="file-remove" onClick={() => setDeepFiles(prev => prev.filter((_,j)=>j!==i))}>✕</button>
+            </div>
+          ))}
+          {deepLoading && (
+            <div>
+              <div className="loading-bar"><div className="loading-bar-fill" style={{ width: `${deepProgress}%` }}></div></div>
+              <div className="loading-status"><div className="loading-dot"></div><span>{deepStatus}</span></div>
+            </div>
+          )}
+          <button className="btn btn-gold btn-sm" onClick={handleDeepDive} disabled={deepLoading || deepFiles.length === 0} style={{ marginTop: '12px' }}>
+            {deepLoading ? '分析中...' : '🔍 深掘り分析を開始'}
+          </button>
+        </div>
+      )}
+
+      {/* Report Sections */}
+      {RESEARCH_SECTIONS.map((sec, i) => (
+        <ReportSection
+          key={sec.id}
+          id={sec.id}
+          title={sec.title}
+          icon={sec.icon}
+          content={report.sections[sec.id]}
+          defaultOpen={i === 0}
+        />
+      ))}
+      
+      {/* Fallback: if sections weren't parsed, show raw */}
+      {Object.keys(report.sections).length <= 1 && report.sections.overview && (
+        <div className="report-section" style={{ padding: '24px' }}>
+          <div className="md-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(report.rawReport || report.sections.overview) }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// History Page
+function HistoryPage({ reports, onSelect, onDelete }) {
+  if (reports.length === 0) return (
+    <div className="empty-state fade-up">
+      <div className="icon">📂</div>
+      <h3>まだ調査履歴がありません</h3>
+      <p>「新規調査」タブから企業研究を始めましょう</p>
+    </div>
+  );
+
+  return (
+    <div className="fade-up">
+      {reports.map(r => (
+        <div className="history-item" key={r.id} onClick={() => onSelect(r)}>
+          <div>
+            <div className="history-company">{r.company}</div>
+            <div className="history-meta">
+              {POSITIONS.find(p => p.value === r.position)?.label} ・ 
+              {new Date(r.createdAt).toLocaleDateString('ja-JP')}
+              {r.hasUploadedFiles && ' ・ 📄 資料付き'}
+            </div>
+          </div>
+          <span className="history-arrow">→</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════
+function App() {
+  const [tab, setTab] = useState('new');
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('claude-sonnet-4-20250514');
+  const [reports, setReports] = useState([]);
+  const [currentReport, setCurrentReport] = useState(null);
+  const [toastMsg, setToastMsg] = useState(null);
+
+  // Load saved state
+  useEffect(() => {
+    const saved = loadState();
+    if (saved) {
+      if (saved.apiKey) setApiKey(saved.apiKey);
+      if (saved.baseUrl) setBaseUrl(saved.baseUrl);
+      if (saved.model) setModel(saved.model);
+      if (saved.reports) setReports(saved.reports);
+    }
+  }, []);
+
+  // Save state
+  useEffect(() => {
+    saveState({ apiKey, baseUrl, model, reports });
+  }, [apiKey, baseUrl, model, reports]);
+
+  const toast = useCallback((msg) => {
+    setToastMsg(msg);
+  }, []);
+
+  const handleNewReport = (report) => {
+    setReports(prev => [report, ...prev]);
+    setCurrentReport(report);
+    setTab('report');
+  };
+
+  const handleUpdateReport = (updated) => {
+    setReports(prev => prev.map(r => r.id === updated.id ? updated : r));
+    setCurrentReport(updated);
+  };
+
+  const handleSelectReport = (report) => {
+    setCurrentReport(report);
+    setTab('report');
+  };
+
+  const handleDeleteReport = (id) => {
+    setReports(prev => prev.filter(r => r.id !== id));
+    if (currentReport?.id === id) setCurrentReport(null);
+  };
+
+  const tabs = [
+    { id: 'new', label: '新規調査' },
+    { id: 'report', label: 'レポート' },
+    { id: 'history', label: '履歴' },
+    { id: 'settings', label: '設定' },
+  ];
+
+  return (
+    <div className="app">
+      {/* Header */}
+      <div className="app-header fade-up">
+        <div className="logo-badge">就活 企業研究</div>
+        <div className="logo">企業研究<span>エンジン</span></div>
+      </div>
+
+      {/* Tabs */}
+      <div className="tabs">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            className={`tab ${tab === t.id ? 'active' : ''}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      {tab === 'new' && (
+        <NewResearchPage apiKey={apiKey} baseUrl={baseUrl} model={model} onComplete={handleNewReport} toast={toast} />
+      )}
+      {tab === 'report' && (
+        <ReportPage report={currentReport} apiKey={apiKey} baseUrl={baseUrl} model={model} toast={toast} onUpdate={handleUpdateReport} />
+      )}
+      {tab === 'history' && (
+        <HistoryPage reports={reports} onSelect={handleSelectReport} onDelete={handleDeleteReport} />
+      )}
+      {tab === 'settings' && (
+        <SettingsPage apiKey={apiKey} setApiKey={setApiKey} baseUrl={baseUrl} setBaseUrl={setBaseUrl} model={model} setModel={setModel} toast={toast} />
+      )}
+
+      {/* Footer */}
+      <div className="app-footer">企業研究エンジン — Built with Claude API</div>
+
+      {/* Toast */}
+      {toastMsg && <Toast message={toastMsg} onClose={() => setToastMsg(null)} />}
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>
