@@ -612,10 +612,88 @@ function renderMarkdown(md) {
 // ═══════════════════════════════════════════
 // CLAUDE API
 // ═══════════════════════════════════════════
-async function callClaude({ apiKey, baseUrl, model, messages, system, tools, onStream }) {
+async function callClaude({ apiKey, baseUrl, model, apiFormat, messages, system, tools, onStream }) {
   const apiBase = (baseUrl || 'https://api.anthropic.com').replace(/\/+$/, '');
   const modelId = model || 'claude-sonnet-4-20250514';
+  const format = apiFormat || 'openai'; // default to openai compat for proxies
   
+  // ── OpenAI-compatible format (中転API / proxy) ──
+  if (format === 'openai') {
+    // Convert Anthropic-style messages to OpenAI format
+    const oaiMessages = [];
+    
+    // System message
+    if (system) {
+      oaiMessages.push({ role: 'system', content: typeof system === 'string' ? system : JSON.stringify(system) });
+    }
+    
+    // User/assistant messages - flatten content arrays to strings
+    for (const msg of messages) {
+      if (typeof msg.content === 'string') {
+        oaiMessages.push({ role: msg.role, content: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        // Handle multimodal content (images, PDFs) - convert to text for OpenAI compat
+        const parts = [];
+        for (const part of msg.content) {
+          if (part.type === 'text') {
+            parts.push(part.text);
+          } else if (part.type === 'document' || part.type === 'image') {
+            // OpenAI compat proxies may support image_url format
+            if (part.source?.type === 'base64') {
+              const mimeType = part.source.media_type || 'application/pdf';
+              if (mimeType.startsWith('image/')) {
+                oaiMessages.push({
+                  role: msg.role,
+                  content: [{
+                    type: 'image_url',
+                    image_url: { url: `data:${mimeType};base64,${part.source.data}` }
+                  }]
+                });
+                continue;
+              } else {
+                // PDF - send as base64 text description request
+                parts.push(`[アップロードされたPDFファイル (${mimeType}) - base64データは省略。PDFの内容を分析してください。]`);
+              }
+            }
+          } else if (part.type === 'tool_result') {
+            parts.push(`[Tool result: ${part.content || 'completed'}]`);
+          }
+        }
+        if (parts.length > 0) {
+          oaiMessages.push({ role: msg.role, content: parts.join('\n') });
+        }
+      }
+    }
+    
+    const body = {
+      model: modelId,
+      max_tokens: 8000,
+      messages: oaiMessages,
+      temperature: 0.7,
+    };
+    
+    const response = await fetch(`${apiBase}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // OpenAI format response
+    const text = data.choices?.[0]?.message?.content || '';
+    return text;
+  }
+  
+  // ── Anthropic native format ──
   const body = {
     model: modelId,
     max_tokens: 8000,
@@ -629,7 +707,6 @@ async function callClaude({ apiKey, baseUrl, model, messages, system, tools, onS
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
-      'Authorization': `Bearer ${apiKey}`,
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
@@ -645,14 +722,10 @@ async function callClaude({ apiKey, baseUrl, model, messages, system, tools, onS
   
   // Handle web search tool use - may need multiple rounds
   if (data.stop_reason === 'tool_use') {
-    // Collect all text and tool results
     const assistantContent = data.content;
     const toolResults = [];
-    
     for (const block of assistantContent) {
       if (block.type === 'tool_use') {
-        // For web_search, the API handles it server-side in newer versions
-        // We just need to continue the conversation
         toolResults.push({
           type: 'tool_result',
           tool_use_id: block.id,
@@ -660,15 +733,12 @@ async function callClaude({ apiKey, baseUrl, model, messages, system, tools, onS
         });
       }
     }
-    
-    // Continue the conversation with tool results
     const nextMessages = [
       ...messages,
       { role: 'assistant', content: assistantContent },
       { role: 'user', content: toolResults },
     ];
-    
-    return callClaude({ apiKey, baseUrl, model, messages: nextMessages, system, tools, onStream });
+    return callClaude({ apiKey, baseUrl, model, apiFormat, messages: nextMessages, system, tools, onStream });
   }
 
   // Extract text from response
@@ -809,10 +879,11 @@ function ReportSection({ id, title, icon, content, defaultOpen = false }) {
 // ═══════════════════════════════════════════
 
 // Settings Page
-function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel, toast }) {
+function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel, apiFormat, setApiFormat, toast }) {
   const [key, setKey] = useState(apiKey || '');
   const [url, setUrl] = useState(baseUrl || '');
   const [mdl, setMdl] = useState(model || 'claude-sonnet-4-20250514');
+  const [fmt, setFmt] = useState(apiFormat || 'openai');
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   
@@ -820,6 +891,7 @@ function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel,
     setApiKey(key);
     setBaseUrl(url);
     setModel(mdl);
+    setApiFormat(fmt);
     setSaved(true);
     toast('設定を保存しました');
     setTimeout(() => setSaved(false), 2000);
@@ -830,26 +902,52 @@ function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel,
     setTesting(true);
     try {
       const apiBase = (url || 'https://api.anthropic.com').replace(/\/+$/, '');
-      const res = await fetch(`${apiBase}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': key,
-          'Authorization': `Bearer ${key}`,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: mdl,
-          max_tokens: 50,
-          messages: [{ role: 'user', content: 'こんにちは。「OK」とだけ返してください。' }],
-        }),
-      });
+      let res;
+      
+      if (fmt === 'openai') {
+        // OpenAI compatible format
+        res = await fetch(`${apiBase}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: mdl,
+            max_tokens: 50,
+            messages: [
+              { role: 'system', content: 'You are a helpful assistant.' },
+              { role: 'user', content: 'こんにちは。「OK」とだけ返してください。' }
+            ],
+          }),
+        });
+      } else {
+        // Anthropic native format
+        res = await fetch(`${apiBase}/v1/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: mdl,
+            max_tokens: 50,
+            messages: [{ role: 'user', content: 'こんにちは。「OK」とだけ返してください。' }],
+          }),
+        });
+      }
+      
       if (res.ok) {
-        toast('✅ 接続成功！APIが正常に動作しています');
+        const data = await res.json();
+        const reply = fmt === 'openai' 
+          ? (data.choices?.[0]?.message?.content || '(応答あり)')
+          : (data.content?.[0]?.text || '(応答あり)');
+        toast(`✅ 接続成功！応答: ${reply.substring(0, 50)}`);
       } else {
         const err = await res.json().catch(() => ({}));
-        toast(`❌ 接続失敗: ${err.error?.message || res.status}`);
+        toast(`❌ 接続失敗: ${err.error?.message || err.message || res.status}`);
       }
     } catch (e) {
       toast(`❌ 接続失敗: ${e.message}`);
@@ -862,37 +960,43 @@ function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel,
     <div className="fade-up">
       <div className="settings-card">
         <h3>🔗 API 接続設定</h3>
+
+        <label>APIフォーマット</label>
+        <select value={fmt} onChange={e => setFmt(e.target.value)}>
+          <option value="openai">OpenAI互換（中転API / Pengui API 等）← 多くの中転APIはこちら</option>
+          <option value="anthropic">Anthropic公式</option>
+        </select>
+        <p style={{ fontSize: '12px', color: 'var(--text-dimmer)', marginBottom: '16px' }}>
+          {fmt === 'openai' 
+            ? '💡 中転APIの場合はこちら。/v1/chat/completions エンドポイントを使用します。'
+            : '💡 Anthropic公式APIの場合はこちら。/v1/messages エンドポイントを使用します。'}
+        </p>
         
-        <label>API BASE URL（中転APIの場合はここを変更）</label>
+        <label>API BASE URL</label>
         <input 
           type="text" 
           value={url}
           onChange={e => setUrl(e.target.value)}
-          placeholder="https://api.anthropic.com（デフォルト・空欄でもOK）"
+          placeholder={fmt === 'openai' ? 'https://api.penguinsaichat.dpdns.org' : 'https://api.anthropic.com（空欄でOK）'}
         />
-        <p style={{ fontSize: '12px', color: 'var(--text-dimmer)', marginBottom: '16px' }}>
-          中転API（例: https://your-proxy.com）を使う場合はここにベースURLを入力。
-          Anthropic公式APIの場合は空欄のままでOKです。
-        </p>
 
         <label>API KEY</label>
         <input 
           type="password" 
           value={key}
           onChange={e => setKey(e.target.value)}
-          placeholder="sk-ant-api03-... または中転APIのキー"
+          placeholder="sk-..."
         />
 
         <label>モデル</label>
-        <select value={mdl} onChange={e => setMdl(e.target.value)}>
-          <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (推奨)</option>
-          <option value="claude-opus-4-20250514">Claude Opus 4</option>
-          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (高速・低コスト)</option>
-          <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
-        </select>
+        <input 
+          type="text"
+          value={mdl}
+          onChange={e => setMdl(e.target.value)}
+          placeholder="claude-sonnet-4-20250514"
+        />
         <p style={{ fontSize: '12px', color: 'var(--text-dimmer)', marginBottom: '16px' }}>
-          中転APIの場合、対応しているモデル名を確認してください。
+          中転APIの場合、対応モデル名をそのまま入力してください（例: claude-sonnet-4-20250514）。分からない場合は中転APIのコンソールで確認。
         </p>
 
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -908,24 +1012,21 @@ function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel,
       <div className="settings-card">
         <h3>📋 使い方</h3>
         <p style={{ fontSize: '13px', color: 'var(--text-dim)', lineHeight: '2' }}>
-          <strong style={{ color: 'var(--gold-light)' }}>Step 1:</strong> 上でAPI接続を設定（中転APIまたはAnthropic公式）<br/>
-          <strong style={{ color: 'var(--gold-light)' }}>Step 2:</strong> 「接続テスト」で動作確認<br/>
-          <strong style={{ color: 'var(--gold-light)' }}>Step 3:</strong> 「新規調査」タブで企業名と志望職種を入力<br/>
-          <strong style={{ color: 'var(--gold-light)' }}>Step 4:</strong> 「企業調査を開始」で自動生成<br/>
-          <strong style={{ color: 'var(--gold-light)' }}>Step 5:</strong> 財報や中計のPDFをアップロードすると深掘り分析を追加<br/>
-          <strong style={{ color: 'var(--gold-light)' }}>Step 6:</strong> 生成されたレポートはHTMLでエクスポート可能
+          <strong style={{ color: 'var(--gold-light)' }}>Step 1:</strong> 上でAPI接続を設定 → 「接続テスト」で確認<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 2:</strong> 「新規調査」タブで企業名と志望職種を入力<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 3:</strong> 「企業調査を開始」でレポート自動生成<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 4:</strong> 財報や中計のPDFをアップロードすると深掘り分析を追加<br/>
+          <strong style={{ color: 'var(--gold-light)' }}>Step 5:</strong> 生成されたレポートはHTMLでエクスポート可能
         </p>
       </div>
 
       <div className="settings-card">
-        <h3>💡 中転API（代理API）について</h3>
+        <h3>💡 Pengui API の設定例</h3>
         <p style={{ fontSize: '13px', color: 'var(--text-dim)', lineHeight: '2' }}>
-          中転APIは、Anthropic公式APIと同じプロトコルで動作する第三方代理サービスです。<br/>
-          設定方法：<br/>
-          ① Base URLに中転APIのアドレスを入力（例: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">https://your-proxy.com</code>）<br/>
-          ② API Keyに中転APIのキーを入力<br/>
-          ③ モデルは中転APIが対応しているものを選択<br/>
-          ④ 「接続テスト」で確認
+          フォーマット: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">OpenAI互換</code><br/>
+          Base URL: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">https://api.penguinsaichat.dpdns.org</code><br/>
+          API Key: コンソールで取得したキー<br/>
+          モデル: コンソールの分組で確認（例: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">claude-sonnet-4-20250514</code>）
         </p>
       </div>
     </div>
@@ -933,7 +1034,7 @@ function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel,
 }
 
 // New Research Page
-function NewResearchPage({ apiKey, baseUrl, model, onComplete, toast }) {
+function NewResearchPage({ apiKey, baseUrl, model, apiFormat, onComplete, toast }) {
   const [company, setCompany] = useState('');
   const [position, setPosition] = useState('overseas_sales');
   const [files, setFiles] = useState([]);
@@ -993,7 +1094,7 @@ function NewResearchPage({ apiKey, baseUrl, model, onComplete, toast }) {
         setStatus('資料を分析中...');
         
         pdfContent = await callClaude({
-          apiKey, baseUrl, model,
+          apiKey, baseUrl, model, apiFormat,
           system: 'あなたは企業分析の専門家です。アップロードされた資料から重要な情報を正確に抽出してください。日本語で回答してください。',
           messages: [{ role: 'user', content: pdfMessages }],
         });
@@ -1006,7 +1107,7 @@ function NewResearchPage({ apiKey, baseUrl, model, onComplete, toast }) {
       setProgress(files.length > 0 ? 60 : 30);
       
       const report = await callClaude({
-        apiKey, baseUrl, model,
+        apiKey, baseUrl, model, apiFormat,
         system: buildResearchPrompt(company, position, pdfContent),
         messages: [{ 
           role: 'user', 
@@ -1175,7 +1276,7 @@ function NewResearchPage({ apiKey, baseUrl, model, onComplete, toast }) {
 }
 
 // Report View Page
-function ReportPage({ report, apiKey, baseUrl, model, toast, onUpdate }) {
+function ReportPage({ report, apiKey, baseUrl, model, apiFormat, toast, onUpdate }) {
   const [uploading, setUploading] = useState(false);
   const [deepFiles, setDeepFiles] = useState([]);
   const [deepLoading, setDeepLoading] = useState(false);
@@ -1216,7 +1317,7 @@ function ReportPage({ report, apiKey, baseUrl, model, toast, onUpdate }) {
       setDeepStatus('資料を分析中...');
       
       const pdfContent = await callClaude({
-        apiKey, baseUrl, model,
+        apiKey, baseUrl, model, apiFormat,
         system: '企業分析の専門家として、資料から重要情報を正確に抽出してください。',
         messages: [{ role: 'user', content: pdfMessages }],
       });
@@ -1225,7 +1326,7 @@ function ReportPage({ report, apiKey, baseUrl, model, toast, onUpdate }) {
       setDeepStatus('深掘り分析を生成中...');
       
       const deepReport = await callClaude({
-        apiKey, baseUrl, model,
+        apiKey, baseUrl, model, apiFormat,
         system: buildDeepDivePrompt(report.company, report.position, report.rawReport, pdfContent),
         messages: [{ role: 'user', content: '追加資料に基づいて、レポートを更新・強化してください。' }],
       });
@@ -1384,6 +1485,7 @@ function App() {
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('claude-sonnet-4-20250514');
+  const [apiFormat, setApiFormat] = useState('openai');
   const [reports, setReports] = useState([]);
   const [currentReport, setCurrentReport] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
@@ -1395,14 +1497,15 @@ function App() {
       if (saved.apiKey) setApiKey(saved.apiKey);
       if (saved.baseUrl) setBaseUrl(saved.baseUrl);
       if (saved.model) setModel(saved.model);
+      if (saved.apiFormat) setApiFormat(saved.apiFormat);
       if (saved.reports) setReports(saved.reports);
     }
   }, []);
 
   // Save state
   useEffect(() => {
-    saveState({ apiKey, baseUrl, model, reports });
-  }, [apiKey, baseUrl, model, reports]);
+    saveState({ apiKey, baseUrl, model, apiFormat, reports });
+  }, [apiKey, baseUrl, model, apiFormat, reports]);
 
   const toast = useCallback((msg) => {
     setToastMsg(msg);
@@ -1459,16 +1562,16 @@ function App() {
 
       {/* Content */}
       {tab === 'new' && (
-        <NewResearchPage apiKey={apiKey} baseUrl={baseUrl} model={model} onComplete={handleNewReport} toast={toast} />
+        <NewResearchPage apiKey={apiKey} baseUrl={baseUrl} model={model} apiFormat={apiFormat} onComplete={handleNewReport} toast={toast} />
       )}
       {tab === 'report' && (
-        <ReportPage report={currentReport} apiKey={apiKey} baseUrl={baseUrl} model={model} toast={toast} onUpdate={handleUpdateReport} />
+        <ReportPage report={currentReport} apiKey={apiKey} baseUrl={baseUrl} model={model} apiFormat={apiFormat} toast={toast} onUpdate={handleUpdateReport} />
       )}
       {tab === 'history' && (
         <HistoryPage reports={reports} onSelect={handleSelectReport} onDelete={handleDeleteReport} />
       )}
       {tab === 'settings' && (
-        <SettingsPage apiKey={apiKey} setApiKey={setApiKey} baseUrl={baseUrl} setBaseUrl={setBaseUrl} model={model} setModel={setModel} toast={toast} />
+        <SettingsPage apiKey={apiKey} setApiKey={setApiKey} baseUrl={baseUrl} setBaseUrl={setBaseUrl} model={model} setModel={setModel} apiFormat={apiFormat} setApiFormat={setApiFormat} toast={toast} />
       )}
 
       {/* Footer */}

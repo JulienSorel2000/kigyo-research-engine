@@ -571,13 +571,15 @@ const RESEARCH_SECTIONS = [
   { id: 'key_numbers', title: '数字まとめ', icon: '09' },
 ];
 
-const STORAGE_KEY = 'kigyo_kenkyuu_v1';
+const STORAGE_KEY = 'kigyo_kenkyuu_v2';
 
 // ═══════════════════════════════════════════
 // UTILS
 // ═══════════════════════════════════════════
 function loadState() {
   try {
+    // Clear old version data
+    localStorage.removeItem('kigyo_kenkyuu_v1');
     const s = localStorage.getItem(STORAGE_KEY);
     return s ? JSON.parse(s) : null;
   } catch { return null; }
@@ -1023,10 +1025,10 @@ function SettingsPage({ apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel,
       <div className="settings-card">
         <h3>💡 Pengui API の設定例</h3>
         <p style={{ fontSize: '13px', color: 'var(--text-dim)', lineHeight: '2' }}>
-          フォーマット: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">OpenAI互換</code><br/>
-          Base URL: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">https://api.penguinsaichat.dpdns.org</code><br/>
+          フォーマット: <code style={{ background: 'var(--dark2)', padding: '2px 8px', borderRadius: '3px' }}>OpenAI互換</code><br/>
+          Base URL: <code style={{ background: 'var(--dark2)', padding: '2px 8px', borderRadius: '3px' }}>https://api.penguinsaichat.dpdns.org</code><br/>
           API Key: コンソールで取得したキー<br/>
-          モデル: コンソールの分組で確認（例: <code style="background:var(--dark2);padding:2px 8px;border-radius:3px;">claude-sonnet-4-20250514</code>）
+          モデル: コンソールの分組で確認（例: <code style={{ background: 'var(--dark2)', padding: '2px 8px', borderRadius: '3px' }}>claude-sonnet-4-20250514</code>）
         </p>
       </div>
     </div>
